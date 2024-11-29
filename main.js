@@ -12,9 +12,6 @@ app.get('/stream', (req, res) => {
     https.get(videoUrl, (youtubeRes) => {
         // Forward headers
         res.setHeader('Content-Type', youtubeRes.headers['content-type']);
-        res.setHeader('Content-Length', youtubeRes.headers['content-length']);
-
-        // Pipe the video to the client
         youtubeRes.pipe(res);
     }).on('error', (err) => {
         console.error('Error fetching video:', err);
