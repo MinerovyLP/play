@@ -4,6 +4,8 @@ WORKDIR /usr/src/app
 
 COPY package*.json ./
 
+npm install ytdl-core@latest
+
 RUN npm install
 
 COPY . .
