@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "express": "*",
-    "ytdl": "*"
+    "express": "^4.21.1",
+    "ytdl": "^1.4.1"
   }
 }
