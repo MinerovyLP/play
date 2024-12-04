@@ -1,76 +1,70 @@
-const express = require('express');
-const axios = require('axios');
+const http = require('http');
+const https = require('https');
+const url = require('url');
 
-const app = express();
-const PORT = 10000;
-
-// Homepage for inputting YouTube video URLs
-app.get('/', (req, res) => {
-    res.send(`
-        <html>
-            <body>
-                <h1>YouTube Embed Proxy</h1>
-                <form action="/embed" method="get">
-                    <label for="url">YouTube Video URL:</label>
-                    <input type="text" id="url" name="url" placeholder="Enter YouTube link" required>
-                    <button type="submit">Access Video</button>
-                </form>
-            </body>
-        </html>
-    `);
-});
-
-// Proxy the YouTube embed page
-app.get('/embed', async (req, res) => {
-    const videoUrl = req.query.url;
-
-    // Extract video ID from the URL
-    const videoIdMatch = videoUrl.match(/(?:v=|youtu\.be\/)([^&]+)/);
-    const videoId = videoIdMatch ? videoIdMatch[1] : null;
-
-    if (!videoId) {
-        return res.status(400).send('Invalid YouTube URL');
+// Helper function to forward requests
+function forwardRequest(req, res, protocol) {
+    const targetUrl = req.headers['x-target-url'];
+    if (!targetUrl) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        return res.end('Missing "X-Target-URL" header');
     }
 
-    try {
-        // Fetch the YouTube embed page
-        const youtubeEmbedUrl = `https://www.youtube.com/embed/${videoId}`;
-        const response = await axios.get(youtubeEmbedUrl, { responseType: 'text' });
+    const parsedUrl = url.parse(targetUrl);
+    const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (protocol === https ? 443 : 80),
+        path: parsedUrl.path,
+        method: req.method,
+        headers: req.headers,
+    };
 
-        // Serve the fetched content to the client
-        res.setHeader('Content-Type', 'text/html');
-        res.send(response.data);
-    } catch (error) {
-        console.error('Error fetching YouTube embed page:', error.message);
-        res.status(500).send('Could not fetch the embed page.');
-    }
+    delete options.headers['host']; // Avoid host conflicts
+    delete options.headers['x-target-url']; // Remove custom header
+
+    const proxy = protocol.request(options, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+    });
+
+    proxy.on('error', (err) => {
+        console.error('Proxy error:', err.message);
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Proxy error');
+    });
+
+    req.pipe(proxy, { end: true });
+}
+
+// HTTP server
+const server = http.createServer((req, res) => {
+    forwardRequest(req, res, http);
 });
 
-app.get('/search', async (req, res) => {
-    const query = req.query.q;
-    if (!query) {
-        return res.status(400).send('Search query is required');
-    }
+// HTTPS support (optional, requires SSL certs)
+const enableHttps = false; // Set true to enable HTTPS
+let httpsServer;
+if (enableHttps) {
+    const fs = require('fs');
+    const path = require('path');
+    const options = {
+        key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+        cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),
+    };
+    httpsServer = https.createServer(options, (req, res) => {
+        forwardRequest(req, res, https);
+    });
+}
 
-    try {
-        const response = await axios.get(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`);
-        const $ = cheerio.load(response.data);
-
-        const results = [];
-        $('a#video-title').each((index, element) => {
-            const title = $(element).text().trim();
-            const link = `https://www.youtube.com${$(element).attr('href')}`;
-            results.push({ title, link });
-        });
-
-        res.json(results);
-    } catch (error) {
-        console.error('Error fetching search results:', error.message);
-        res.status(500).send('Could not fetch search results.');
-    }
+// Start server
+const PORT = 8080;
+server.listen(PORT, () => {
+    console.log(`HTTP proxy server is running on http://localhost:${PORT}`);
 });
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+if (enableHttps) {
+    const HTTPS_PORT = 8443;
+    httpsServer.listen(HTTPS_PORT, () => {
+        console.log(`HTTPS proxy server is running on https://localhost:${HTTPS_PORT}`);
+    });
+}
