@@ -1,9 +1,6 @@
 const express = require('express');
-const ytdl = require('ytdl-core');
-const path = require('path');
-
 const app = express();
-const PORT = 3000;
+const PORT = 10000;
 
 // Serve the homepage
 app.get('/', (req, res) => {
@@ -21,26 +18,36 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Fetch and stream the video
-app.get('/video', async (req, res) => {
+// Serve the video embed page
+app.get('/video', (req, res) => {
     const videoUrl = req.query.url;
 
-    if (!ytdl.validateURL(videoUrl)) {
+    // Extract the video ID from the URL
+    const videoIdMatch = videoUrl.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([^&]+)|youtu\.be\/([^&]+)/);
+    const videoId = videoIdMatch ? videoIdMatch[1] || videoIdMatch[2] : null;
+
+    if (!videoId) {
         return res.status(400).send('Invalid YouTube URL');
     }
 
-    try {
-        const videoInfo = await ytdl.getInfo(videoUrl);
-        const videoTitle = videoInfo.videoDetails.title;
-
-        res.setHeader('Content-Disposition', `inline; filename="${videoTitle}.mp4"`);
-        res.setHeader('Content-Type', 'video/mp4');
-
-        ytdl(videoUrl, { format: 'mp4' }).pipe(res);
-    } catch (error) {
-        console.error(error);
-        res.status(500).send('An error occurred while processing the video.');
-    }
+    // Render an embedded YouTube player
+    res.send(`
+        <html>
+            <body>
+                <h1>Watch Video</h1>
+                <iframe
+                    width="800"
+                    height="450"
+                    src="https://www.youtube.com/embed/${videoId}"
+                    frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowfullscreen>
+                </iframe>
+                <br>
+                <a href="/">Go Back</a>
+            </body>
+        </html>
+    `);
 });
 
 // Start the server
