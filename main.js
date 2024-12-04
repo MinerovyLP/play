@@ -46,6 +46,30 @@ app.get('/embed', async (req, res) => {
     }
 });
 
+app.get('/search', async (req, res) => {
+    const query = req.query.q;
+    if (!query) {
+        return res.status(400).send('Search query is required');
+    }
+
+    try {
+        const response = await axios.get(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`);
+        const $ = cheerio.load(response.data);
+
+        const results = [];
+        $('a#video-title').each((index, element) => {
+            const title = $(element).text().trim();
+            const link = `https://www.youtube.com${$(element).attr('href')}`;
+            results.push({ title, link });
+        });
+
+        res.json(results);
+    } catch (error) {
+        console.error('Error fetching search results:', error.message);
+        res.status(500).send('Could not fetch search results.');
+    }
+});
+
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
