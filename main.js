@@ -1,72 +1,75 @@
-const http = require('http');
-const https = require('https');
-const url = require('url');
+const express = require('express');
+const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
+const { promisify } = require('util');
+const exec = promisify(require('child_process').exec);
+const app = express();
+const port = 3000;
 
-// Helper function to forward requests
-function forwardRequest(req, res, protocol) {
-    // Extract the URL from the 'url' query parameter
-    const queryParams = url.parse(req.url, true).query;
-    const targetUrl = queryParams.url;
+// Helper function to download files
+async function downloadFile(url, dest) {
+  const response = await fetch(url);
+  const fileStream = fs.createWriteStream(dest);
+  await new Promise((resolve, reject) => {
+    response.body.pipe(fileStream);
+    response.body.on("error", reject);
+    fileStream.on("finish", resolve);
+  });
+  console.log(`Downloaded ${url} to ${dest}`);
+}
 
-    if (!targetUrl) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' });
-        return res.end('Missing "url" query parameter');
+// Function to convert a downloaded file to 7z
+async function convertTo7z(inputFilePath, outputFilePath) {
+  try {
+    const command = `7za a "${outputFilePath}" "${inputFilePath}"`;  // 7z compression command
+    const { stdout, stderr } = await exec(command);
+    if (stderr) {
+      throw new Error(stderr);
+    }
+    console.log(`File successfully compressed to 7z: ${stdout}`);
+  } catch (error) {
+    console.error(`Error during compression: ${error.message}`);
+  }
+}
+
+// API endpoint to download and convert the file
+app.get('/download-convert', async (req, res) => {
+  const fileUrl = req.query.url;  // File URL to download
+  const tempDir = path.join(__dirname, 'temp');
+  const inputFilePath = path.join(tempDir, 'downloadedFile');
+  const outputFilePath = path.join(tempDir, 'compressedFile.7z');
+
+  try {
+    if (!fileUrl) {
+      return res.status(400).send('URL parameter is required');
     }
 
-    const parsedUrl = url.parse(targetUrl);
-    const options = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (protocol === https ? 443 : 80),
-        path: parsedUrl.path,
-        method: req.method,
-        headers: req.headers,
-    };
+    // Ensure temp directory exists
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir);
+    }
 
-    delete options.headers['host']; // Avoid host conflicts
+    // Step 1: Download the file
+    await downloadFile(fileUrl, inputFilePath);
 
-    const proxy = protocol.request(options, (proxyRes) => {
-        res.writeHead(proxyRes.statusCode, proxyRes.headers);
-        proxyRes.pipe(res, { end: true });
+    // Step 2: Convert to 7z
+    await convertTo7z(inputFilePath, outputFilePath);
+
+    // Step 3: Send the 7z file as a response to the client
+    res.download(outputFilePath, 'convertedFile.7z', (err) => {
+      if (err) {
+        console.error(`Error during file download: ${err.message}`);
+      }
+      // Clean up files after download
+      fs.unlinkSync(inputFilePath);
+      fs.unlinkSync(outputFilePath);
     });
-
-    proxy.on('error', (err) => {
-        console.error('Proxy error:', err.message);
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Proxy error');
-    });
-
-    req.pipe(proxy, { end: true });
-}
-
-// HTTP server
-const server = http.createServer((req, res) => {
-    forwardRequest(req, res, http);
+  } catch (error) {
+    res.status(500).send(`Error: ${error.message}`);
+  }
 });
 
-// HTTPS support (optional, requires SSL certs)
-const enableHttps = false; // Set true to enable HTTPS
-let httpsServer;
-if (enableHttps) {
-    const fs = require('fs');
-    const path = require('path');
-    const options = {
-        key: fs.readFileSync(path.join(__dirname, 'key.pem')),
-        cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),
-    };
-    httpsServer = https.createServer(options, (req, res) => {
-        forwardRequest(req, res, https);
-    });
-}
-
-// Start server
-const PORT = 10000;
-server.listen(PORT, () => {
-    console.log(`HTTP proxy server is running on http://localhost:${PORT}`);
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
 });
-
-if (enableHttps) {
-    const HTTPS_PORT = 10000;
-    httpsServer.listen(HTTPS_PORT, () => {
-        console.log(`HTTPS proxy server is running on https://localhost:${HTTPS_PORT}`);
-    });
-}
