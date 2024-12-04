@@ -4,10 +4,13 @@ const url = require('url');
 
 // Helper function to forward requests
 function forwardRequest(req, res, protocol) {
-    const targetUrl = req.headers['x-target-url'];
+    // Extract the URL from the 'url' query parameter
+    const queryParams = url.parse(req.url, true).query;
+    const targetUrl = queryParams.url;
+
     if (!targetUrl) {
         res.writeHead(400, { 'Content-Type': 'text/plain' });
-        return res.end('Missing "X-Target-URL" header');
+        return res.end('Missing "url" query parameter');
     }
 
     const parsedUrl = url.parse(targetUrl);
@@ -20,7 +23,6 @@ function forwardRequest(req, res, protocol) {
     };
 
     delete options.headers['host']; // Avoid host conflicts
-    delete options.headers['x-target-url']; // Remove custom header
 
     const proxy = protocol.request(options, (proxyRes) => {
         res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -57,13 +59,13 @@ if (enableHttps) {
 }
 
 // Start server
-const PORT = 8080;
+const PORT = 10000;
 server.listen(PORT, () => {
     console.log(`HTTP proxy server is running on http://localhost:${PORT}`);
 });
 
 if (enableHttps) {
-    const HTTPS_PORT = 8443;
+    const HTTPS_PORT = 10000;
     httpsServer.listen(HTTPS_PORT, () => {
         console.log(`HTTPS proxy server is running on https://localhost:${HTTPS_PORT}`);
     });
