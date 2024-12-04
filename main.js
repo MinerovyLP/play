@@ -1,53 +1,49 @@
 const express = require('express');
+const axios = require('axios');
+
 const app = express();
 const PORT = 10000;
 
-// Serve the homepage
+// Homepage for inputting YouTube video URLs
 app.get('/', (req, res) => {
     res.send(`
         <html>
             <body>
-                <h1>YouTube Video Player</h1>
-                <form action="/video" method="get">
+                <h1>YouTube Embed Proxy</h1>
+                <form action="/embed" method="get">
                     <label for="url">YouTube Video URL:</label>
                     <input type="text" id="url" name="url" placeholder="Enter YouTube link" required>
-                    <button type="submit">Get Video</button>
+                    <button type="submit">Access Video</button>
                 </form>
             </body>
         </html>
     `);
 });
 
-// Serve the video embed page
-app.get('/video', (req, res) => {
+// Proxy the YouTube embed page
+app.get('/embed', async (req, res) => {
     const videoUrl = req.query.url;
 
-    // Extract the video ID from the URL
-    const videoIdMatch = videoUrl.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([^&]+)|youtu\.be\/([^&]+)/);
-    const videoId = videoIdMatch ? videoIdMatch[1] || videoIdMatch[2] : null;
+    // Extract video ID from the URL
+    const videoIdMatch = videoUrl.match(/(?:v=|youtu\.be\/)([^&]+)/);
+    const videoId = videoIdMatch ? videoIdMatch[1] : null;
 
     if (!videoId) {
         return res.status(400).send('Invalid YouTube URL');
     }
 
-    // Render an embedded YouTube player
-    res.send(`
-        <html>
-            <body>
-                <h1>Watch Video</h1>
-                <iframe
-                    width="800"
-                    height="450"
-                    src="https://www.youtube.com/embed/${videoId}"
-                    frameborder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowfullscreen>
-                </iframe>
-                <br>
-                <a href="/">Go Back</a>
-            </body>
-        </html>
-    `);
+    try {
+        // Fetch the YouTube embed page
+        const youtubeEmbedUrl = `https://www.youtube.com/embed/${videoId}`;
+        const response = await axios.get(youtubeEmbedUrl, { responseType: 'text' });
+
+        // Serve the fetched content to the client
+        res.setHeader('Content-Type', 'text/html');
+        res.send(response.data);
+    } catch (error) {
+        console.error('Error fetching YouTube embed page:', error.message);
+        res.status(500).send('Could not fetch the embed page.');
+    }
 });
 
 // Start the server
